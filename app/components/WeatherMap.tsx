@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { GoogleMap, LoadScript, Marker, InfoWindow } from "@react-google-maps/api";
+import { GoogleMap, Marker, InfoWindow } from "@react-google-maps/api";
 import { MapPin, Thermometer, Droplets, Wind, Eye } from "lucide-react";
 
 interface WeatherData {
@@ -42,8 +42,6 @@ const defaultCenter = {
   lat: 21.0285, // Hanoi coordinates
   lng: 105.8542,
 };
-
-const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = ["places"];
 
 export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C" }: WeatherMapProps) {
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
@@ -165,90 +163,88 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C" }: Weathe
       )}
 
       {!loading && !error && weatherData && (
-        <LoadScript googleMapsApiKey={googleMapsApiKey} libraries={libraries}>
-          <GoogleMap
-            mapContainerStyle={mapContainerStyle}
-            center={mapCenter}
-            zoom={12}
-            options={{
-              zoomControl: true,
-              streetViewControl: false,
-              mapTypeControl: false,
-              fullscreenControl: true,
-            }}
-          >
-            {weatherData.location?.lat && weatherData.location?.lon && (
-              <>
-                <Marker
+        <GoogleMap
+          mapContainerStyle={mapContainerStyle}
+          center={mapCenter}
+          zoom={12}
+          options={{
+            zoomControl: true,
+            streetViewControl: false,
+            mapTypeControl: false,
+            fullscreenControl: true,
+          }}
+        >
+          {weatherData.location?.lat && weatherData.location?.lon && (
+            <>
+              <Marker
+                position={{
+                  lat: weatherData.location.lat,
+                  lng: weatherData.location.lon,
+                }}
+                onClick={() => setShowInfoWindow(true)}
+              />
+              {showInfoWindow && (
+                <InfoWindow
                   position={{
-                    lat: weatherData.location.lat,
-                    lng: weatherData.location.lon,
+                    lat: weatherData.location!.lat!,
+                    lng: weatherData.location!.lon!,
                   }}
-                  onClick={() => setShowInfoWindow(true)}
-                />
-                {showInfoWindow && (
-                  <InfoWindow
-                    position={{
-                      lat: weatherData.location!.lat!,
-                      lng: weatherData.location!.lon!,
-                    }}
-                    onCloseClick={() => setShowInfoWindow(false)}
-                  >
-                    <div className="p-2 min-w-[250px]">
-                      <h4 className="font-bold text-lg mb-2 text-blue-700">
-                        {weatherData.location?.name || location}
-                      </h4>
-                      {weatherData.current && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Thermometer className="text-red-500" size={18} />
-                            <span className="font-semibold text-gray-800">
-                              {convertTemp(
-                                weatherData.current.temp_c,
-                                weatherData.current.temp_f
-                              )}
-                              {unit === "K" ? "K" : unit}
-                            </span>
-                            <span className="text-blue-600 text-sm">
-                              {weatherData.current.condition?.text}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Droplets className="text-blue-500" size={18} />
-                            <span className="text-gray-700">Humidity: {weatherData.current.humidity}%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Wind className="text-gray-500" size={18} />
-                            <span className="text-gray-700">
-                              Wind:{" "}
-                              {unit === "°F"
-                                ? `${weatherData.current.wind_mph || 0} mph`
-                                : `${weatherData.current.wind_kph || 0} km/h`}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Eye className="text-gray-500" size={18} />
-                            <span className="text-gray-700">
-                              Visibility:{" "}
-                              {unit === "°F"
-                                ? `${weatherData.current.vis_miles || 0} mi`
-                                : `${weatherData.current.vis_km || 0} km`}
-                            </span>
-                          </div>
-                          {weatherData.current.pressure_mb && (
-                            <div className="text-sm text-gray-700">
-                              Pressure: {weatherData.current.pressure_mb} mb
-                            </div>
-                          )}
+                  onCloseClick={() => setShowInfoWindow(false)}
+                >
+                  <div className="p-2 min-w-[250px]">
+                    <h4 className="font-bold text-lg mb-2 text-blue-700">
+                      {weatherData.location?.name || location}
+                    </h4>
+                    {weatherData.current && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Thermometer className="text-red-500" size={18} />
+                          <span className="font-semibold text-gray-800">
+                            {convertTemp(
+                              weatherData.current.temp_c,
+                              weatherData.current.temp_f
+                            )}
+                            {unit === "K" ? "K" : unit}
+                          </span>
+                          <span className="text-blue-600 text-sm">
+                            {weatherData.current.condition?.text}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  </InfoWindow>
-                )}
-              </>
-            )}
-          </GoogleMap>
-        </LoadScript>
+                        <div className="flex items-center gap-2">
+                          <Droplets className="text-blue-500" size={18} />
+                          <span className="text-gray-700">Humidity: {weatherData.current.humidity}%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Wind className="text-gray-500" size={18} />
+                          <span className="text-gray-700">
+                            Wind:{" "}
+                            {unit === "°F"
+                              ? `${weatherData.current.wind_mph || 0} mph`
+                              : `${weatherData.current.wind_kph || 0} km/h`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Eye className="text-gray-500" size={18} />
+                          <span className="text-gray-700">
+                            Visibility:{" "}
+                            {unit === "°F"
+                              ? `${weatherData.current.vis_miles || 0} mi`
+                              : `${weatherData.current.vis_km || 0} km`}
+                          </span>
+                        </div>
+                        {weatherData.current.pressure_mb && (
+                          <div className="text-sm text-gray-700">
+                            Pressure: {weatherData.current.pressure_mb} mb
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </InfoWindow>
+              )}
+            </>
+          )}
+        </GoogleMap>
       )}
 
       {/* Weather Info Card below map */}
@@ -303,4 +299,3 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C" }: Weathe
     </div>
   );
 }
-

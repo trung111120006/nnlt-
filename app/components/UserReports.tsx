@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { MapPin, Calendar, TrendingUp, AlertCircle, Plus, X, RefreshCw, Send, Clock } from "lucide-react";
+import { GoogleMap, Marker } from "@react-google-maps/api";
 import { useAuth } from "./AuthContext";
 
 interface Report {
@@ -365,6 +366,23 @@ export function UserReports() {
             ))}
           </div>
         )}
+      </div>
+      {/* Map Section */}
+      <div className="bg-white rounded-2xl p-6 shadow-lg overflow-hidden">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">Reports Map</h3>
+        <div className="h-[300px] w-full rounded-xl overflow-hidden">
+             <GoogleMap
+               mapContainerStyle={{ width: "100%", height: "100%" }}
+               center={{ lat: 21.0285, lng: 105.8542 }} // Default to Hanoi
+               zoom={10}
+               options={{
+                 disableDefaultUI: true,
+                 zoomControl: true,
+               }}
+             >
+               {/* Placeholder for markers if we had coordinates */}
+             </GoogleMap>
+        </div>
       </div>
     </div>
   );
