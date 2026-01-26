@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Mail, MapPin, Calendar, BarChart3, Edit2, Briefcase, Clock } from "lucide-react";
+import { User, Mail, MapPin, Calendar, BarChart3, Edit2, Briefcase, Clock, Bell } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { getProfile } from "@/lib/profile";
-import { UserProfile as UserProfileType } from "@/lib/types";
+import { UserProfile as UserProfileType, NotificationTime } from "@/lib/types";
 import { EditProfile } from "./EditProfile";
 
 interface Report {
@@ -25,11 +25,14 @@ export function UserProfile() {
   const [reportsLoading, setReportsLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [notificationTimes, setNotificationTimes] = useState<NotificationTime[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   useEffect(() => {
     if (user) {
       loadProfile();
       loadUserReports();
+      loadNotificationTimes();
     }
   }, [user]);
 
@@ -72,6 +75,23 @@ export function UserProfile() {
       setUserReports([]);
     } finally {
       setReportsLoading(false);
+    }
+  };
+
+  const loadNotificationTimes = async () => {
+    if (!user) return;
+    setLoadingNotifications(true);
+    try {
+      const response = await fetch(`/api/notifications?user_id=${user.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setNotificationTimes(data.notification_times || []);
+      }
+    } catch (error) {
+      console.error("Failed to load notification times:", error);
+      setNotificationTimes([]);
+    } finally {
+      setLoadingNotifications(false);
     }
   };
 
@@ -216,6 +236,50 @@ export function UserProfile() {
             </div>
           </div>
 
+          {/* Email Notifications */}
+          <div className="bg-white rounded-2xl p-6 shadow-lg">
+            <div className="flex items-center gap-2 mb-4">
+              <Bell className="text-blue-500" size={20} />
+              <h3 className="text-xl font-bold text-gray-900">Email Notifications</h3>
+            </div>
+            {loadingNotifications ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+              </div>
+            ) : notificationTimes.length === 0 ? (
+              <div className="text-center py-6 bg-gray-50 rounded-xl">
+                <Bell className="mx-auto mb-2 text-gray-400" size={24} />
+                <p className="text-sm text-gray-600 font-medium">No notification times configured</p>
+                <p className="text-xs text-gray-500 mt-1">Set up email alerts in Edit Profile</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {notificationTimes
+                  .filter(nt => nt.enabled)
+                  .sort((a, b) => a.hour - b.hour || a.minute - b.minute)
+                  .map((nt) => (
+                    <div
+                      key={nt.id}
+                      className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-200"
+                    >
+                      <Clock className="text-blue-600" size={18} />
+                      <span className="text-gray-800 font-medium">
+                        {String(nt.hour).padStart(2, "0")}:{String(nt.minute).padStart(2, "0")}
+                      </span>
+                      <span className="text-sm text-gray-600">
+                        Air quality alerts when AQI &gt; 100
+                      </span>
+                    </div>
+                  ))}
+                {notificationTimes.filter(nt => !nt.enabled).length > 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {notificationTimes.filter(nt => !nt.enabled).length} disabled notification(s)
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Recent Activity */}
           <div className="bg-white rounded-2xl p-6 shadow-lg">
             <h3 className="text-xl font-bold text-gray-900 mb-4">Recent Activity</h3>
@@ -278,6 +342,7 @@ export function UserProfile() {
           onUpdate={() => {
             loadProfile();
             loadUserReports(); // Also reload reports in case anything changed
+            loadNotificationTimes(); // Reload notification times
           }}
         />
       )}

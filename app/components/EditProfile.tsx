@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Upload, User, Briefcase, Calendar, Save } from "lucide-react";
+import { X, Upload, User, Briefcase, Calendar, Save, Clock, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { uploadAvatar } from "@/lib/profile";
-import { UserProfile, ProfileFormData } from "@/lib/types";
+import { UserProfile, ProfileFormData, NotificationTime } from "@/lib/types";
 
 interface EditProfileProps {
   profile: UserProfile | null;
@@ -25,6 +25,119 @@ export function EditProfile({ profile, onClose, onUpdate }: EditProfileProps) {
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notificationTimes, setNotificationTimes] = useState<NotificationTime[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      loadNotificationTimes();
+    }
+  }, [user]);
+
+  const loadNotificationTimes = async () => {
+    if (!user) return;
+    setLoadingNotifications(true);
+    try {
+      const response = await fetch(`/api/notifications?user_id=${user.id}`);
+      const data = await response.json();
+      if (response.ok) {
+        setNotificationTimes(data.notification_times || []);
+      }
+    } catch (err) {
+      console.error("Error loading notification times:", err);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  const handleAddNotificationTime = async () => {
+    if (!user) return;
+    const newTime: Partial<NotificationTime> = {
+      hour: 9,
+      minute: 0,
+      enabled: true,
+    };
+
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.id,
+          hour: newTime.hour,
+          minute: newTime.minute,
+          enabled: newTime.enabled,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        await loadNotificationTimes();
+      } else {
+        setError(data.error || data.details || "Failed to add notification time");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to add notification time");
+    }
+  };
+
+  const handleDeleteNotificationTime = async (id: string) => {
+    if (!user) return;
+    try {
+      const response = await fetch(`/api/notifications?id=${id}&user_id=${user.id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        await loadNotificationTimes();
+      } else {
+        const data = await response.json();
+        setError(data.error || data.details || "Failed to delete notification time");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to delete notification time");
+    }
+  };
+
+  const handleToggleNotificationTime = async (id: string, enabled: boolean) => {
+    if (!user) return;
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, user_id: user.id, enabled: !enabled }),
+      });
+
+      if (response.ok) {
+        await loadNotificationTimes();
+      } else {
+        const data = await response.json();
+        setError(data.error || data.details || "Failed to update notification time");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to update notification time");
+    }
+  };
+
+  const handleUpdateNotificationTime = async (id: string, hour: number, minute: number) => {
+    if (!user) return;
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, user_id: user.id, hour, minute }),
+      });
+
+      if (response.ok) {
+        await loadNotificationTimes();
+      } else {
+        const data = await response.json();
+        setError(data.error || data.details || "Failed to update notification time");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to update notification time");
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -219,6 +332,96 @@ export function EditProfile({ profile, onClose, onUpdate }: EditProfileProps) {
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 font-medium"
               placeholder="Enter your job or profession"
             />
+          </div>
+
+          {/* Email Notification Times */}
+          <div className="pt-4 border-t border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <label className="block text-sm font-medium text-gray-700">
+                <Clock size={16} className="inline mr-2" />
+                Air Quality Email Notifications
+              </label>
+              <button
+                type="button"
+                onClick={handleAddNotificationTime}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
+              >
+                <Plus size={16} />
+                Add Time
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 mb-4">
+              Set times to receive email alerts when air quality is bad (AQI &gt; 100)
+            </p>
+
+            {loadingNotifications ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+              </div>
+            ) : notificationTimes.length === 0 ? (
+              <div className="text-center py-6 bg-gray-50 rounded-xl">
+                <Clock className="mx-auto mb-2 text-gray-400" size={24} />
+                <p className="text-sm text-gray-600 font-medium">No notification times set</p>
+                <p className="text-xs text-gray-500 mt-1">Click "Add Time" to set up email alerts</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {notificationTimes.map((nt) => (
+                  <div
+                    key={nt.id}
+                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200"
+                  >
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={nt.hour}
+                        onChange={(e) => {
+                          const hour = parseInt(e.target.value) || 0;
+                          handleUpdateNotificationTime(nt.id, hour, nt.minute);
+                        }}
+                        className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-medium text-sm"
+                      />
+                      <span className="text-gray-700 font-medium">:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={nt.minute}
+                        onChange={(e) => {
+                          const minute = parseInt(e.target.value) || 0;
+                          handleUpdateNotificationTime(nt.id, nt.hour, minute);
+                        }}
+                        className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 font-medium text-sm"
+                      />
+                      <span className="text-gray-600 text-sm font-medium ml-2">
+                        ({String(nt.hour).padStart(2, "0")}:{String(nt.minute).padStart(2, "0")})
+                      </span>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={nt.enabled}
+                        onChange={() => handleToggleNotificationTime(nt.id, nt.enabled)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700 font-medium">
+                        {nt.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteNotificationTime(nt.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Actions */}
