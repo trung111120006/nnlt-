@@ -1,22 +1,8 @@
 import { NextResponse } from "next/server";
+import { fetchWeatherAndAirQuality } from "../../lib/weatherService";
 
-// Thêm: Rate limiting simple (tránh spam)
+// Simple in-memory rate limiting
 const requestCache = new Map<string, { count: number; resetTime: number }>();
-
-// Clean up expired cache entries periodically
-function cleanupCache() {
-  const now = Date.now();
-  for (const [key, value] of requestCache.entries()) {
-    if (now > value.resetTime) {
-      requestCache.delete(key);
-    }
-  }
-}
-
-// Run cleanup every 5 minutes
-if (typeof setInterval !== 'undefined') {
-  setInterval(cleanupCache, 5 * 60 * 1000);
-}
 
 function checkRateLimit(identifier: string): boolean {
   const now = Date.now();
@@ -27,7 +13,7 @@ function checkRateLimit(identifier: string): boolean {
     return true;
   }
   
-  if (limit.count >= 20) { // Max 20 requests per minute
+  if (limit.count >= 20) { 
     return false;
   }
   
@@ -35,26 +21,38 @@ function checkRateLimit(identifier: string): boolean {
   return true;
 }
 
+// Helper to format weather data for the LLM
+function formatWeatherDataForLLM(data: any): string {
+  if (!data) return "Could not fetch weather data.";
+  
+  let summary = `Current weather in ${data.location.name}, ${data.location.country}:
+- Temperature: ${data.current?.temp_c}°C (${data.current?.temp_f}°F)
+- Condition: ${data.current?.condition?.text}
+- Humidity: ${data.current?.humidity}%
+- Wind: ${data.current?.wind_kph} km/h`;
+
+  if (data.air_quality?.current) {
+    summary += `\n\nAir Quality:
+- AQI (US): ${data.air_quality.current.aqi_us}
+- Level: ${data.air_quality.current.level}
+- Main Pollutant: ${data.air_quality.current.main_pollutant}`;
+  }
+
+  return summary;
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt, context } = await req.json();
     
-    // Validation cải tiến
+    // Validation
     if (!prompt || typeof prompt !== 'string') {
       return NextResponse.json({ error: "Invalid prompt" }, { status: 400 });
     }
     
-    if (prompt.trim().length === 0) {
-      return NextResponse.json({ error: "Prompt cannot be empty" }, { status: 400 });
-    }
-    
-    if (prompt.length > 10000) {
-      return NextResponse.json({ error: "Prompt too long (max 10000 characters)" }, { status: 400 });
-    }
-
-    // Rate limiting - extract first IP from x-forwarded-for (can contain multiple IPs)
+    // Rate limiting
     const forwardedFor = req.headers.get('x-forwarded-for');
-    const clientId = forwardedFor ? forwardedFor.split(',')[0].trim() : (req.headers.get('x-real-ip') || 'unknown');
+    const clientId = forwardedFor ? forwardedFor.split(',')[0].trim() : "unknown";
     if (!checkRateLimit(clientId)) {
       return NextResponse.json({ 
         error: "Too many requests. Please wait a moment." 
@@ -68,153 +66,132 @@ export async function POST(req: Request) {
       }, { status: 500 });
     }
 
-    // System hint cải tiến với nhiều ngữ cảnh hơn
-    const systemHint = `You are an intelligent website assistant with the following capabilities:
-- Answer questions based on the provided page context
-- Provide accurate information about weather, air quality, and forecasts
-- Support multiple languages: always respond in the same language as the user
-- Be concise but informative
-- If you don't know something from the context, say so clearly
-- Format responses with proper structure when needed
+    const systemHint = `You are a helpful assistant for a city reporting app. 
+You can answer questions about the app or about real-time weather and air quality using the available tools.
+If the user asks for weather or air quality for a specific city, USE THE get_weather TOOL.
+Always respond in the same language as the user.
+Current context: ${context?.url ? `User is viewing: ${context.url}` : ''}`;
 
-Current context: ${context?.url ? `Analyzing page: ${context.url}` : 'General assistance'}`;
-    
-    const pageBlock = context?.pageText 
-      ? `\n\n=== PAGE CONTEXT (${context.pageText.length} characters) ===\n${context.pageText.substring(0, 8000)}\n=== END CONTEXT ===` 
-      : '';
-    const urlLine = context?.url ? `\nSource URL: ${context.url}` : '';
-    const fullPrompt = `${systemHint}${urlLine}${pageBlock}\n\nUser: ${prompt.trim()}`;
+    const tools = [
+      {
+        functionDeclarations: [
+          {
+            name: "get_weather",
+            description: "Get current weather and air quality for a specific city.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                location: {
+                  type: "STRING",
+                  description: "The city and country, e.g. 'Ho Chi Minh, Vietnam' or 'London'",
+                },
+              },
+              required: ["location"],
+            },
+          },
+        ],
+      },
+    ];
 
-    console.log(`[API Call] Prompt length: ${fullPrompt.length}, User: ${clientId}`);
+    const messages = [
+      { role: "user", parts: [{ text: `${systemHint}\n\nUser: ${prompt}` }] }
+    ];
 
-    // Retry logic với exponential backoff
-    let lastError: any = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    // First API call to determine tool usage
+    const response1 = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: messages,
+          tools: tools,
+        }),
+      }
+    );
+
+    const data1 = await response1.json();
+    const candidate1 = data1.candidates?.[0];
+    const funcCall = candidate1?.content?.parts?.find((p: any) => p.functionCall);
+
+    if (funcCall) {
+      const { name, args } = funcCall.functionCall;
+      
+      if (name === "get_weather") {
+        console.log(`Calling tool get_weather for ${args.location}`);
+        
+        let toolResult = "";
+        try {
+            const weatherData = await fetchWeatherAndAirQuality(args.location);
+            toolResult = formatWeatherDataForLLM(weatherData);
+        } catch (e: any) {
+            toolResult = `Error fetching weather: ${e.message}`;
+        }
+
+        // Send tool result back to model
+        const response2 = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
           {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: [
+                messages[0],
                 {
-                  role: "user",
-                  parts: [{ text: fullPrompt }]
+                  role: "model",
+                  parts: [{ functionCall: funcCall.functionCall }]
+                },
+                {
+                  role: "function",
+                  parts: [{
+                    functionResponse: {
+                      name: "get_weather",
+                      response: {
+                        content: toolResult
+                      }
+                    }
+                  }]
                 }
               ],
-              generationConfig: {
-                temperature: 0.7,
-                topK: 40,
-                topP: 0.95,
-                maxOutputTokens: 2048, // Tăng lên cho responses dài hơn
-                candidateCount: 1,
-              },
-              safetySettings: [
-                {
-                  category: "HARM_CATEGORY_HARASSMENT",
-                  threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                },
-                {
-                  category: "HARM_CATEGORY_HATE_SPEECH",
-                  threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                },
-                {
-                  category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                  threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                },
-                {
-                  category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                  threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                }
-              ]
-            })
+              tools: tools
+            }),
           }
         );
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[Attempt ${attempt + 1}] Gemini API error:`, errorText);
-          
-          if (response.status === 429) {
-            // Rate limit from Gemini - wait and retry
-            await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
-            continue;
-          }
-          
-          return NextResponse.json({ 
-            error: "API request failed",
-            details: response.status === 400 ? "Invalid request" : errorText
-          }, { status: response.status });
-        }
+        const data2 = await response2.json();
+        const candidate2 = data2.candidates?.[0];
+        let finalContent = candidate2?.content?.parts?.[0]?.text;
 
-        const data = await response.json();
-        
-        // Xử lý các trường hợp đặc biệt
-        if (!data.candidates || data.candidates.length === 0) {
-          return NextResponse.json({ 
-            error: "No response generated",
-            reply: "I apologize, but I couldn't generate a response. Please try rephrasing your question."
-          }, { status: 200 });
-        }
-
-        const candidate = data.candidates[0];
-        
-        // Check finish reason
-        if (candidate.finishReason === "SAFETY") {
-          return NextResponse.json({ 
-            reply: "I apologize, but I cannot provide a response to that query due to content safety guidelines. Please try asking in a different way."
-          }, { status: 200 });
+        if (!finalContent) {
+          console.warn("Gemini 2nd call failed to summarize. Response:", JSON.stringify(data2));
+          // Fallback: Just show the raw data nicely if the model refuses to summarize
+          finalContent = `I gathered the data but couldn't write a summary. Here is the info:\n\n${toolResult}`;
         }
         
-        if (candidate.finishReason === "RECITATION") {
-          return NextResponse.json({ 
-            reply: "I cannot provide that specific information. Could you rephrase your question?"
-          }, { status: 200 });
-        }
-        
-        const text = candidate.content?.parts?.[0]?.text;
-        
-        if (!text) {
-          return NextResponse.json({ 
-            error: "Empty response",
-            reply: "I received your question but couldn't generate a proper response. Please try again."
-          }, { status: 200 });
-        }
-
-        console.log(`[Success] Response length: ${text.length}`);
-        
-        return NextResponse.json({ 
-          reply: text.trim(),
-          metadata: {
-            model: "gemini-2.5-flash",
-            finishReason: candidate.finishReason,
-            responseLength: text.length
-          }
-        });
-
-      } catch (fetchError: any) {
-        lastError = fetchError;
-        console.error(`[Attempt ${attempt + 1}] Fetch error:`, fetchError.message);
-        
-        if (attempt < 2) {
-          // Exponential backoff: 1s, 2s, 4s
-          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
-        }
+        return NextResponse.json({ reply: finalContent });
       }
     }
 
-    // Nếu tất cả attempts đều fail
-    throw lastError || new Error("All retry attempts failed");
+    // No tool call, check for text response
+    const part = candidate1?.content?.parts?.[0];
+    const text = part?.text;
+    
+    if (text) {
+      return NextResponse.json({ reply: text });
+    }
+
+    // Debugging: Log full response if no text and no function call
+    console.error("Gemini API Unexpected Response:", JSON.stringify(data1, null, 2));
+
+    return NextResponse.json({ 
+      reply: "I received your message but couldn't generate a text response. Please try again." 
+    });
 
   } catch (err: any) {
-    console.error("[Fatal Error]", err);
+    console.error("Chat API Error:", err);
     return NextResponse.json({ 
-      error: "Service temporarily unavailable",
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined,
-      reply: "I'm having trouble connecting right now. Please try again in a moment."
-    }, { status: 503 });
+      error: "Service unavailable",
+      reply: "I'm having trouble connecting right now."
+    }, { status: 500 });
   }
 }
