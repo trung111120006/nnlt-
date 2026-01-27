@@ -8,3 +8,4 @@ services:
     # host.docker.internal works on Docker Desktop for Windows/Mac
     extra_hosts:
       - "host.docker.internal:host-gateway" 
+# 
