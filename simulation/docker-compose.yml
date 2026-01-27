@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  client:
+    build: .
+    deploy:
+      replicas: 20
+    # host.docker.internal works on Docker Desktop for Windows/Mac
+    extra_hosts:
+      - "host.docker.internal:host-gateway" 
