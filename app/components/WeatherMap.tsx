@@ -50,6 +50,7 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
   const [error, setError] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState(defaultCenter);
   const [showInfoWindow, setShowInfoWindow] = useState(true);
+  const [displayLocation, setDisplayLocation] = useState(location);
 
   const fetchWeatherData = useCallback(async () => {
     setLoading(true);
@@ -80,6 +81,25 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
       }
 
       setWeatherData(data);
+
+      // Build a human-friendly display location from backend data
+      const parts = [
+        data.location?.name,
+        data.location?.region,
+        data.location?.country,
+      ]
+        .map((part: string | undefined) => part?.trim())
+        .filter(Boolean);
+
+      if (parts.length > 0) {
+        const uniqueParts: string[] = [];
+        for (const part of parts as string[]) {
+          if (!uniqueParts.includes(part)) uniqueParts.push(part);
+        }
+        setDisplayLocation(uniqueParts.join(", "));
+      } else {
+        setDisplayLocation(location);
+      }
 
       // Update map center if coordinates are available
       if (data.location?.lat && data.location?.lon) {
@@ -136,7 +156,7 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
       <div className="p-6 border-b border-gray-200">
         <h3 className="text-2xl font-bold text-blue-600 flex items-center gap-2">
           <MapPin className="text-blue-500" size={24} />
-          Weather Map - {location}
+          Weather Map - {displayLocation}
         </h3>
       </div>
 
@@ -208,7 +228,7 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
                 >
                   <div className="p-2 min-w-[250px]">
                     <h4 className="font-bold text-lg mb-2 text-blue-700">
-                      {weatherData.location?.name || location}
+                      {displayLocation}
                     </h4>
                     {weatherData.current && (
                       <div className="space-y-2">
