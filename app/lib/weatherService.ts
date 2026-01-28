@@ -173,17 +173,44 @@ function processForecastData(forecastData: any, currentWeather?: any): { today: 
   };
 }
 
+// Helper: reverse geocode coordinates to a nicer place name
+async function reverseGeocodeLocation(
+  lat: number,
+  lon: number,
+  apiKey: string
+): Promise<{ name?: string; state?: string; country?: string } | null> {
+  try {
+    const url = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || !data[0]) return null;
+    return {
+      name: data[0].name,
+      state: data[0].state,
+      country: data[0].country,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Transform response
 function transformWeatherData(
   weatherData: any,
   forecastData?: any,
-  airQualityCurrent?: any
+  airQualityCurrent?: any,
+  placeOverride?: { name?: string; state?: string; country?: string } | null
 ): WeatherResponse {
+  const resolvedName = placeOverride?.name || weatherData.name;
+  const resolvedRegion = placeOverride?.state || weatherData.sys?.country;
+  const resolvedCountry = placeOverride?.country || weatherData.sys?.country;
+
   return {
     location: {
-      name: weatherData.name,
-      region: weatherData.sys?.country,
-      country: weatherData.sys?.country,
+      name: resolvedName,
+      region: resolvedRegion,
+      country: resolvedCountry,
       lat: weatherData.coord?.lat,
       lon: weatherData.coord?.lon,
     },
@@ -296,7 +323,7 @@ export async function fetchWeatherAndAirQuality(location: string, includeForecas
     }
   }
 
-  return transformWeatherData(weatherData, forecastData, airQualityCurrent);
+  return transformWeatherData(weatherData, forecastData, airQualityCurrent, null);
 }
 
 // New: fetch weather and air quality by coordinates (used for browser geolocation)
@@ -321,6 +348,9 @@ export async function fetchWeatherAndAirQualityByCoords(
   }
 
   const weatherData = await weatherResponse.json();
+
+  // 1b. Reverse geocode to get a better human-readable place name
+  const placeOverride = await reverseGeocodeLocation(lat, lon, WEATHER_API_KEY);
 
   // 2. Forecast by coordinates
   let forecastData = null;
@@ -373,5 +403,5 @@ export async function fetchWeatherAndAirQualityByCoords(
     }
   }
 
-  return transformWeatherData(weatherData, forecastData, airQualityCurrent);
+  return transformWeatherData(weatherData, forecastData, airQualityCurrent, placeOverride);
 }
