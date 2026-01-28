@@ -29,7 +29,10 @@ interface WeatherData {
 }
 
 interface WeatherMapProps {
+  // `location` is the general place name used for API queries / fallback text
   location?: string;
+  // `label` is the detailed text for UI (street, district...)
+  label?: string;
   unit?: "°F" | "°C" | "K";
   coords?: { lat: number; lon: number };
 }
@@ -44,13 +47,12 @@ const defaultCenter = {
   lng: 105.8542,
 };
 
-export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }: WeatherMapProps) {
+export function WeatherMap({ location = "Hanoi, Vietnam", label, unit = "°C", coords }: WeatherMapProps) {
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState(defaultCenter);
   const [showInfoWindow, setShowInfoWindow] = useState(true);
-  const [displayLocation, setDisplayLocation] = useState(location);
 
   const fetchWeatherData = useCallback(async () => {
     setLoading(true);
@@ -81,25 +83,6 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
       }
 
       setWeatherData(data);
-
-      // Build a human-friendly display location from backend data
-      const parts = [
-        data.location?.name,
-        data.location?.region,
-        data.location?.country,
-      ]
-        .map((part: string | undefined) => part?.trim())
-        .filter(Boolean);
-
-      if (parts.length > 0) {
-        const uniqueParts: string[] = [];
-        for (const part of parts as string[]) {
-          if (!uniqueParts.includes(part)) uniqueParts.push(part);
-        }
-        setDisplayLocation(uniqueParts.join(", "));
-      } else {
-        setDisplayLocation(location);
-      }
 
       // Update map center if coordinates are available
       if (data.location?.lat && data.location?.lon) {
@@ -156,7 +139,7 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
       <div className="p-6 border-b border-gray-200">
         <h3 className="text-2xl font-bold text-blue-600 flex items-center gap-2">
           <MapPin className="text-blue-500" size={24} />
-          Weather Map - {displayLocation}
+          Weather Map - {label || location}
         </h3>
       </div>
 
@@ -228,7 +211,7 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }
                 >
                   <div className="p-2 min-w-[250px]">
                     <h4 className="font-bold text-lg mb-2 text-blue-700">
-                      {displayLocation}
+                      {label || weatherData.location?.name || location}
                     </h4>
                     {weatherData.current && (
                       <div className="space-y-2">

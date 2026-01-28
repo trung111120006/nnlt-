@@ -12,7 +12,10 @@ import { WeatherMap } from "./WeatherMap";
 
 export function WeatherDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
+  // location: value used for API queries (general place, like city)
   const [location, setLocation] = useState("Hanoi, Vietnam");
+  // locationDisplay: more detailed label for UI (street, district, etc.)
+  const [locationDisplay, setLocationDisplay] = useState("Hanoi, Vietnam");
   const [unit, setUnit] = useState<"°F" | "°C" | "K">("°C");
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
@@ -22,18 +25,19 @@ export function WeatherDashboard() {
   // can prefill with the same place.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!location) return;
+    if (!locationDisplay) return;
     try {
-      window.localStorage.setItem("airweather:lastLocationName", location);
+      window.localStorage.setItem("airweather:lastLocationName", locationDisplay);
     } catch {
       // Ignore storage errors
     }
-  }, [location]);
+  }, [locationDisplay]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       setLocation(searchQuery.trim());
+      setLocationDisplay(searchQuery.trim());
       setSearchQuery("");
       setGeoError(null);
       // For manual search, clear any previously locked GPS coords
@@ -65,6 +69,7 @@ export function WeatherDashboard() {
             throw new Error(data.error || data.details || "Failed to detect your location");
           }
 
+          // Build a reasonable fallback name from weather/air APIs
           const nameParts = [
             data.location?.name,
             data.location?.region,
@@ -73,15 +78,47 @@ export function WeatherDashboard() {
             .map((part: string | undefined) => part?.trim())
             .filter(Boolean);
 
+          let fallbackName: string;
           if (nameParts.length > 0) {
             // Ensure uniqueness of parts while preserving order
             const uniqueParts: string[] = [];
             for (const part of nameParts as string[]) {
               if (!uniqueParts.includes(part)) uniqueParts.push(part);
             }
-            setLocation(uniqueParts.join(", "));
+            fallbackName = uniqueParts.join(", ");
           } else {
-            setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+            fallbackName = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+          }
+
+          // Set initial name immediately for both API and UI
+          setLocation(fallbackName);
+          setLocationDisplay(fallbackName);
+
+          // Then try to refine it with Google Maps reverse geocoding
+          try {
+            if (typeof window !== "undefined") {
+              const g = (window as any).google;
+              if (g?.maps?.Geocoder) {
+                const geocoder = new g.maps.Geocoder();
+                geocoder.geocode(
+                  { location: { lat: latitude, lng: longitude } },
+                  (results: any, status: string) => {
+                    if (
+                      status === "OK" &&
+                      results &&
+                      results[0] &&
+                      results[0].formatted_address
+                    ) {
+                      // This usually contains street, district, city, country.
+                      // Use it only for display; keep `location` (API query) as the general place.
+                      setLocationDisplay(results[0].formatted_address as string);
+                    }
+                  }
+                );
+              }
+            }
+          } catch {
+            // If reverse geocoding fails, we keep the fallback name
           }
         } catch (error: any) {
           console.error("Geolocation weather error:", error);
@@ -148,7 +185,7 @@ export function WeatherDashboard() {
         {/* Location Display + any geolocation error */}
         <div className="flex flex-col gap-1">
           <p className="text-gray-800 text-sm font-medium">
-            Current location: <span className="font-semibold">{location}</span>
+            Current location: <span className="font-semibold">{locationDisplay}</span>
           </p>
           {geoError && (
             <p className="text-xs text-red-500 font-medium">
@@ -164,20 +201,25 @@ export function WeatherDashboard() {
       </div>
 
       {/* Weather Map - Prominent Display */}
-      <WeatherMap location={location} unit={unit} coords={geoCoords || undefined} />
+      <WeatherMap
+        location={location}
+        label={locationDisplay}
+        unit={unit}
+        coords={geoCoords || undefined}
+      />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Main Weather & AQI */}
         <div className="lg:col-span-2 space-y-6">
           {/* Current Weather */}
-          <CurrentWeather location={location} unit={unit} />
+          <CurrentWeather location={location} unit={unit} coords={geoCoords || undefined} />
 
           {/* Air Quality Index */}
           <AirQualityIndex location={location} />
 
           {/* 7-Day Forecast */}
-          <Forecast location={location} unit={unit} />
+          <Forecast location={location} unit={unit} coords={geoCoords || undefined} />
         </div>
 
         {/* Right Column - Regional Air Quality */}
@@ -188,7 +230,7 @@ export function WeatherDashboard() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
-        <TemperatureChart location={location} unit={unit} />
+        <TemperatureChart location={location} unit={unit} coords={geoCoords || undefined} />
       </div>
     </div>
   );

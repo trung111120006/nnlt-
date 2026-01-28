@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 
 interface AirQualityIndexProps {
+  // General place (e.g. city) used for API queries
+  // We intentionally ignore precise GPS here and always use this broader area.
   location?: string;
 }
 
@@ -41,7 +43,11 @@ export function AirQualityIndex({ location = "Hanoi, Vietnam" }: AirQualityIndex
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}`);
+        // Always query by general place (city) for AQI. This gives
+        // more reliable data than very precise GPS points.
+        const response = await fetch(
+          `/api/weather?location=${encodeURIComponent(location)}`
+        );
         const data = await response.json();
         
         if (!response.ok) {
@@ -52,10 +58,12 @@ export function AirQualityIndex({ location = "Hanoi, Vietnam" }: AirQualityIndex
           throw new Error(data.error);
         }
 
+        // Some locations (especially precise GPS points) may not have AQ data.
+        // In that case, we keep a neutral UI instead of showing an error.
         if (data.air_quality) {
           setAirQualityData(data.air_quality);
         } else {
-          setError("Air quality data not available for this location");
+          setAirQualityData(null);
         }
       } catch (err: any) {
         setError(err.message || "Failed to load air quality data");
@@ -78,7 +86,7 @@ export function AirQualityIndex({ location = "Hanoi, Vietnam" }: AirQualityIndex
 
 
   // Get current AQI - use aqi_us directly (0-500 scale)
-  const currentAqi = airQualityData?.current?.aqi_us || 50;
+  const currentAqi = airQualityData?.current?.aqi_us ?? 0;
   const currentColorInfo = getStatusColor(currentAqi);
   const currentDescription = getAQIDescription(currentAqi);
   const mainPollutant = airQualityData?.current?.main_pollutant || 'pm2.5';
@@ -103,6 +111,39 @@ export function AirQualityIndex({ location = "Hanoi, Vietnam" }: AirQualityIndex
           <div className="text-center">
             <p className="text-red-500">{error}</p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Graceful fallback UI when the API responds successfully but has no AQ data
+  if (!airQualityData?.current) {
+    return (
+      <div className="bg-white rounded-2xl p-6 shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Air Quality Index</h3>
+            <p className="text-sm text-gray-700 font-medium">
+              Live air quality data is not available for this exact location.
+            </p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-700 font-medium mb-3">
+          Below is the standard AQI scale for reference.
+        </p>
+        <div className="flex h-8 rounded-lg overflow-hidden">
+          <div className="flex-1 bg-green-500"></div>
+          <div className="flex-1 bg-yellow-500"></div>
+          <div className="flex-1 bg-orange-500"></div>
+          <div className="flex-1 bg-red-500"></div>
+          <div className="flex-1 bg-purple-500"></div>
+        </div>
+        <div className="flex justify-between text-xs text-gray-800 font-medium mt-1">
+          <span>0-50</span>
+          <span>50-100</span>
+          <span>100-150</span>
+          <span>150-200</span>
+          <span>200+</span>
         </div>
       </div>
     );

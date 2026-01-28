@@ -4,8 +4,11 @@ import { useState, useEffect } from "react";
 import { Cloud } from "lucide-react";
 
 interface ForecastProps {
+  // General place used for API queries when no coords are provided
   location: string;
   unit: "°F" | "°C" | "K";
+  // Optional coordinates (from browser GPS). When present, these take precedence.
+  coords?: { lat: number; lon: number };
 }
 
 interface ForecastDay {
@@ -32,7 +35,7 @@ interface WeatherData {
   };
 }
 
-export function Forecast({ location, unit }: ForecastProps) {
+export function Forecast({ location, unit, coords }: ForecastProps) {
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +45,11 @@ export function Forecast({ location, unit }: ForecastProps) {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}&forecast=true`);
+        const url = coords
+          ? `/api/weather?lat=${coords.lat}&lon=${coords.lon}&forecast=true`
+          : `/api/weather?location=${encodeURIComponent(location)}&forecast=true`;
+
+        const response = await fetch(url);
         const data = await response.json();
         
         if (!response.ok) {
@@ -63,7 +70,7 @@ export function Forecast({ location, unit }: ForecastProps) {
     };
 
     fetchForecast();
-  }, [location]);
+  }, [location, coords]);
 
   const convertTemp = (tempC?: number, tempF?: number) => {
     if (tempC === undefined && tempF === undefined) return null;
