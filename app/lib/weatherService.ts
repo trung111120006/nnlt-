@@ -173,44 +173,17 @@ function processForecastData(forecastData: any, currentWeather?: any): { today: 
   };
 }
 
-// Helper: reverse geocode coordinates to a nicer place name
-async function reverseGeocodeLocation(
-  lat: number,
-  lon: number,
-  apiKey: string
-): Promise<{ name?: string; state?: string; country?: string } | null> {
-  try {
-    const url = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${apiKey}`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!Array.isArray(data) || !data[0]) return null;
-    return {
-      name: data[0].name,
-      state: data[0].state,
-      country: data[0].country,
-    };
-  } catch {
-    return null;
-  }
-}
-
 // Transform response
 function transformWeatherData(
   weatherData: any,
   forecastData?: any,
-  airQualityCurrent?: any,
-  placeOverride?: { name?: string; state?: string; country?: string } | null
+  airQualityCurrent?: any
 ): WeatherResponse {
-  const resolvedName = placeOverride?.name || weatherData.name;
-  const resolvedRegion = placeOverride?.state || weatherData.sys?.country;
-  const resolvedCountry = placeOverride?.country || weatherData.sys?.country;
-
   return {
     location: {
-      name: resolvedName,
-      region: resolvedRegion,
-      country: resolvedCountry,
+      name: weatherData.name,
+      region: weatherData.sys?.country,
+      country: weatherData.sys?.country,
       lat: weatherData.coord?.lat,
       lon: weatherData.coord?.lon,
     },
@@ -323,7 +296,7 @@ export async function fetchWeatherAndAirQuality(location: string, includeForecas
     }
   }
 
-  return transformWeatherData(weatherData, forecastData, airQualityCurrent, null);
+  return transformWeatherData(weatherData, forecastData, airQualityCurrent);
 }
 
 // New: fetch weather and air quality by coordinates (used for browser geolocation)
@@ -349,9 +322,6 @@ export async function fetchWeatherAndAirQualityByCoords(
 
   const weatherData = await weatherResponse.json();
 
-  // 1b. Reverse geocode to get a better human-readable place name
-  const placeOverride = await reverseGeocodeLocation(lat, lon, WEATHER_API_KEY);
-
   // 2. Forecast by coordinates
   let forecastData = null;
   if (includeForecast) {
@@ -369,6 +339,7 @@ export async function fetchWeatherAndAirQualityByCoords(
 
   // 3. Air quality using the same coordinates
   let airQualityCurrent = null;
+  let locationOverride: { name?: string; region?: string; country?: string } | null = null;
 
   if (AIR_QUALITY_API_KEY) {
     try {
@@ -378,24 +349,39 @@ export async function fetchWeatherAndAirQualityByCoords(
       if (aqResponse.ok) {
         const aqData = await aqResponse.json();
 
-        if (aqData.status === 'success' && aqData.data?.current?.pollution) {
-          const pollution = aqData.data.current.pollution;
-          const aqius = pollution.aqius || 50;
+        if (aqData.status === 'success' && aqData.data) {
+          // Prefer AQ provider's city/state/country for more accurate naming
+          const city = aqData.data.city;
+          const state = aqData.data.state;
+          const country = aqData.data.country;
 
-          airQualityCurrent = {
-            aqi: convertUSAQIToScale(aqius),
-            aqi_us: aqius,
-            main_pollutant: pollution.mainus || 'pm2.5',
-            level: getAQILevel(aqius),
-            components: {
-              pm2_5: pollution.p2,
-              pm10: pollution.p1,
-              o3: pollution.o3,
-              no2: pollution.n2,
-              so2: pollution.s2,
-              co: pollution.co,
-            },
-          };
+          if (city || state || country) {
+            locationOverride = {
+              name: city || weatherData.name,
+              region: state,
+              country: country || weatherData.sys?.country,
+            };
+          }
+
+          if (aqData.data.current?.pollution) {
+            const pollution = aqData.data.current.pollution;
+            const aqius = pollution.aqius || 50;
+
+            airQualityCurrent = {
+              aqi: convertUSAQIToScale(aqius),
+              aqi_us: aqius,
+              main_pollutant: pollution.mainus || 'pm2.5',
+              level: getAQILevel(aqius),
+              components: {
+                pm2_5: pollution.p2,
+                pm10: pollution.p1,
+                o3: pollution.o3,
+                no2: pollution.n2,
+                so2: pollution.s2,
+                co: pollution.co,
+              },
+            };
+          }
         }
       }
     } catch (error) {
@@ -403,5 +389,15 @@ export async function fetchWeatherAndAirQualityByCoords(
     }
   }
 
-  return transformWeatherData(weatherData, forecastData, airQualityCurrent, placeOverride);
+  const result = transformWeatherData(weatherData, forecastData, airQualityCurrent);
+
+  // If we got a more descriptive location name from the AQ provider, use it
+  if (locationOverride) {
+    result.location = {
+      ...result.location,
+      ...locationOverride,
+    };
+  }
+
+  return result;
 }

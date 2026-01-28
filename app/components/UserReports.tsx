@@ -83,6 +83,22 @@ export function UserReports() {
     fetchReports();
   }, []);
 
+  // When the fast-report form is opened, try to prefill the Location Name
+  // from the last location the user chose in the Weather tab.
+  useEffect(() => {
+    if (!showForm) return;
+    if (typeof window === "undefined") return;
+
+    try {
+      const savedLocation = window.localStorage.getItem("airweather:lastLocationName");
+      if (savedLocation && !formData.location) {
+        setFormData((prev) => ({ ...prev, location: savedLocation }));
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [showForm, formData.location]);
+
   // Handle fast report submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
