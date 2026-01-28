@@ -31,6 +31,7 @@ interface WeatherData {
 interface WeatherMapProps {
   location?: string;
   unit?: "°F" | "°C" | "K";
+  coords?: { lat: number; lon: number };
 }
 
 const mapContainerStyle = {
@@ -43,7 +44,7 @@ const defaultCenter = {
   lng: 105.8542,
 };
 
-export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C" }: WeatherMapProps) {
+export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C", coords }: WeatherMapProps) {
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +55,11 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C" }: Weathe
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}`);
+      const url = coords
+        ? `/api/weather?lat=${coords.lat}&lon=${coords.lon}`
+        : `/api/weather?location=${encodeURIComponent(location)}`;
+
+      const response = await fetch(url);
       const data = await response.json();
       
       if (!response.ok) {
@@ -89,7 +94,17 @@ export function WeatherMap({ location = "Hanoi, Vietnam", unit = "°C" }: Weathe
     } finally {
       setLoading(false);
     }
-  }, [location]);
+  }, [location, coords]);
+
+  useEffect(() => {
+    // If explicit coords are provided (from GPS), favor them for centering immediately
+    if (coords) {
+      setMapCenter({
+        lat: coords.lat,
+        lng: coords.lon,
+      });
+    }
+  }, [coords]);
 
   useEffect(() => {
     fetchWeatherData();

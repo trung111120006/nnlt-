@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, MapPin } from "lucide-react";
 import { CurrentWeather } from "./CurrentWeather";
 import { AirQualityIndex } from "./AirQualityIndex";
@@ -16,6 +16,19 @@ export function WeatherDashboard() {
   const [unit, setUnit] = useState<"°F" | "°C" | "K">("°C");
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Persist the last chosen location so other parts of the app (like Live Reports)
+  // can prefill with the same place.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!location) return;
+    try {
+      window.localStorage.setItem("airweather:lastLocationName", location);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [location]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +36,8 @@ export function WeatherDashboard() {
       setLocation(searchQuery.trim());
       setSearchQuery("");
       setGeoError(null);
+      // For manual search, clear any previously locked GPS coords
+      setGeoCoords(null);
     }
   };
 
@@ -39,6 +54,7 @@ export function WeatherDashboard() {
       async (position) => {
         try {
           const { latitude, longitude } = position.coords;
+          setGeoCoords({ lat: latitude, lon: longitude });
           // Ask backend for weather by coordinates to resolve a friendly location name
           const response = await fetch(
             `/api/weather?lat=${latitude}&lon=${longitude}&forecast=true`
@@ -51,13 +67,21 @@ export function WeatherDashboard() {
 
           const nameParts = [
             data.location?.name,
+            data.location?.region,
             data.location?.country,
-          ].filter(Boolean);
+          ]
+            .map((part: string | undefined) => part?.trim())
+            .filter(Boolean);
 
           if (nameParts.length > 0) {
-            setLocation(nameParts.join(", "));
+            // Ensure uniqueness of parts while preserving order
+            const uniqueParts: string[] = [];
+            for (const part of nameParts as string[]) {
+              if (!uniqueParts.includes(part)) uniqueParts.push(part);
+            }
+            setLocation(uniqueParts.join(", "));
           } else {
-            setLocation(`${latitude.toFixed(2)}, ${longitude.toFixed(2)}`);
+            setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
           }
         } catch (error: any) {
           console.error("Geolocation weather error:", error);
@@ -140,7 +164,7 @@ export function WeatherDashboard() {
       </div>
 
       {/* Weather Map - Prominent Display */}
-      <WeatherMap location={location} unit={unit} />
+      <WeatherMap location={location} unit={unit} coords={geoCoords || undefined} />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
