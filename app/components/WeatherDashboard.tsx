@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Wind, Droplets, Eye, Gauge, Sun, Cloud } from "lucide-react";
+import { Search, MapPin } from "lucide-react";
 import { CurrentWeather } from "./CurrentWeather";
 import { AirQualityIndex } from "./AirQualityIndex";
 import { RegionalAirQuality } from "./RegionalAirQuality";
@@ -14,13 +14,68 @@ export function WeatherDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [location, setLocation] = useState("Hanoi, Vietnam");
   const [unit, setUnit] = useState<"°F" | "°C" | "K">("°C");
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       setLocation(searchQuery.trim());
       setSearchQuery("");
+      setGeoError(null);
     }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setGeoError("Geolocation is not supported by this browser.");
+      return;
+    }
+
+    setGeoLoading(true);
+    setGeoError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          // Ask backend for weather by coordinates to resolve a friendly location name
+          const response = await fetch(
+            `/api/weather?lat=${latitude}&lon=${longitude}&forecast=true`
+          );
+          const data = await response.json();
+
+          if (!response.ok || data.error) {
+            throw new Error(data.error || data.details || "Failed to detect your location");
+          }
+
+          const nameParts = [
+            data.location?.name,
+            data.location?.country,
+          ].filter(Boolean);
+
+          if (nameParts.length > 0) {
+            setLocation(nameParts.join(", "));
+          } else {
+            setLocation(`${latitude.toFixed(2)}, ${longitude.toFixed(2)}`);
+          }
+        } catch (error: any) {
+          console.error("Geolocation weather error:", error);
+          setGeoError(error.message || "Unable to detect your location");
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      (error) => {
+        console.error("Geolocation error:", error);
+        if (error.code === error.PERMISSION_DENIED) {
+          setGeoError("Location permission was denied. You can still search by city name.");
+        } else {
+          setGeoError("Unable to get your location. Please try again or search by city.");
+        }
+        setGeoLoading(false);
+      }
+    );
   };
 
   return (
@@ -31,28 +86,53 @@ export function WeatherDashboard() {
         <p className="text-white opacity-95">Real-time conditions and forecasts</p>
       </div>
 
-      {/* Search Bar */}
-      <form onSubmit={handleSearch} className="flex gap-3">
-        <div className="flex-1 relative">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search any city or location..."
-            className="w-full pl-12 pr-4 py-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-          />
-        </div>
-        <button
-          type="submit"
-          className="px-8 py-4 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors font-medium"
-        >
-          Search
-        </button>
-      </form>
+      {/* Search Bar + Use My Location */}
+      <div className="space-y-2">
+        <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1 relative">
+            <Search
+              className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"
+              size={20}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search any city or location..."
+              className="w-full pl-12 pr-4 py-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="flex-1 md:flex-none px-6 py-4 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors font-medium"
+            >
+              Search
+            </button>
+            <button
+              type="button"
+              onClick={handleUseMyLocation}
+              disabled={geoLoading}
+              className="flex-1 md:flex-none px-6 py-4 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <MapPin size={18} />
+              {geoLoading ? "Detecting..." : "Use my location"}
+            </button>
+          </div>
+        </form>
 
-      {/* Location Display */}
-      <p className="text-gray-800 text-sm font-medium">{location}</p>
+        {/* Location Display + any geolocation error */}
+        <div className="flex flex-col gap-1">
+          <p className="text-gray-800 text-sm font-medium">
+            Current location: <span className="font-semibold">{location}</span>
+          </p>
+          {geoError && (
+            <p className="text-xs text-red-500 font-medium">
+              {geoError}
+            </p>
+          )}
+        </div>
+      </div>
 
       {/* Unit Toggle */}
       <div className="flex justify-end">
