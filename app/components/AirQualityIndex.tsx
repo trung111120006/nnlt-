@@ -38,6 +38,27 @@ export function AirQualityIndex({ location = "Hanoi, Vietnam" }: AirQualityIndex
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Normalize a potentially very specific location string (e.g. "Long Bien, Hanoi, Vietnam")
+  // into a broader city-level location for AQI queries (e.g. "Hanoi, Vietnam").
+  const getCityLevelLocation = (raw: string): string => {
+    const parts = raw
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (parts.length >= 3) {
+      // Use the last two segments (usually "City, Country")
+      return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`;
+    }
+
+    if (parts.length === 2) {
+      // Already "City, Country"
+      return `${parts[0]}, ${parts[1]}`;
+    }
+
+    return raw.trim();
+  };
+
   useEffect(() => {
     const fetchAirQuality = async () => {
       setLoading(true);
@@ -45,8 +66,9 @@ export function AirQualityIndex({ location = "Hanoi, Vietnam" }: AirQualityIndex
       try {
         // Always query by general place (city) for AQI. This gives
         // more reliable data than very precise GPS points.
+        const cityLocation = getCityLevelLocation(location);
         const response = await fetch(
-          `/api/weather?location=${encodeURIComponent(location)}`
+          `/api/weather?location=${encodeURIComponent(cityLocation)}`
         );
         const data = await response.json();
         
