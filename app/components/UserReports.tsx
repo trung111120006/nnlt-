@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MapPin, Calendar, TrendingUp, AlertCircle, Plus, X, RefreshCw, Send, Clock, Car, CloudFog, Droplets, Info } from "lucide-react";
+import { MapPin, Calendar, TrendingUp, AlertCircle, Plus, X, RefreshCw, Send, Clock, Car, CloudFog, Droplets, Info, Star } from "lucide-react";
 import { GoogleMap, Marker, InfoWindow } from "@react-google-maps/api";
 import { useAuth } from "./AuthContext";
 
@@ -14,6 +14,8 @@ interface Report {
   user_id: string;
   time_ago?: string;
   reported_by?: string;
+  reporter_name?: string | null;
+  user_credibility?: number | null;
   type?: 'traffic' | 'pollution' | 'flood' | 'other';
   lat?: number;
   lng?: number;
@@ -50,25 +52,49 @@ export function UserReports() {
     type: "other",
   });
 
-  // Fetch reports from database
+  // Fetch reports from database and enrich with credibility/name from profiles
   const fetchReports = async () => {
     try {
       setIsLoading(true);
       const response = await fetch("/api/reports");
-      
+
       if (!response.ok) {
         setReports([]);
         return;
       }
 
       const data = await response.json();
-      // Filter out reports older than 24 hours (increased from 3h for better demo)
       const now = new Date();
       const cutoffTime = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-      const activeReports = (data.reports || []).filter((report: Report) => {
+      let activeReports: Report[] = (data.reports || []).filter((report: Report) => {
         const reportDate = new Date(report.created_at);
         return reportDate >= cutoffTime;
       });
+
+      // Enrich with credibility and name from profiles (batch API uses service role when available)
+      const userIds = [...new Set(activeReports.map((r) => r.user_id).filter(Boolean))];
+      if (userIds.length > 0) {
+        try {
+          const batchRes = await fetch(
+            `/api/profiles/batch?user_ids=${encodeURIComponent(userIds.join(","))}`
+          );
+          if (batchRes.ok) {
+            const batchData = await batchRes.json();
+            const profilesMap = batchData.profiles || {};
+            activeReports = activeReports.map((report) => {
+              const p = profilesMap[report.user_id];
+              return {
+                ...report,
+                reporter_name: p?.full_name ?? report.reporter_name ?? null,
+                user_credibility: p?.credibility ?? report.user_credibility ?? 0,
+              };
+            });
+          }
+        } catch (_) {
+          // keep reports as returned from /api/reports
+        }
+      }
+
       setReports(activeReports);
     } catch (error) {
       console.error("Error fetching reports:", error);
@@ -390,7 +416,18 @@ export function UserReports() {
                      </div>
                      <h4 className="font-bold text-gray-900">#{activeMarker.number}</h4>
                      <p className="text-sm text-gray-700 mb-1">{activeMarker.location}</p>
-                     <p className="text-sm font-medium text-gray-900">{activeMarker.problem}</p>
+                     <p className="text-sm font-medium text-gray-900 mb-2">{activeMarker.problem}</p>
+                     {activeMarker.reporter_name && (
+                       <p className="text-xs text-gray-600 mb-2">
+                         Reported by: <span className="font-semibold text-gray-800">{activeMarker.reporter_name}</span>
+                       </p>
+                     )}
+                     {activeMarker.user_credibility !== undefined && activeMarker.user_credibility !== null && activeMarker.user_credibility > 0 && (
+                       <div className="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
+                         <Star size={12} className="fill-yellow-500 text-yellow-500" />
+                         <span className="font-semibold">Reporter Credibility: {activeMarker.user_credibility}</span>
+                       </div>
+                     )}
                    </div>
                  </InfoWindow>
                )}
@@ -435,10 +472,27 @@ export function UserReports() {
                         <h4 className="font-bold text-gray-900 line-clamp-1">{report.location}</h4>
                         <span className="text-xs text-gray-500 whitespace-nowrap ml-2">{report.time_ago}</span>
                       </div>
-                      <div className="text-sm text-blue-600 font-medium mb-1">
-                        {typeInfo.label} • Map ID: {report.number}
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <div className="text-sm text-blue-600 font-medium">
+                          {typeInfo.label} • Map ID: {report.number}
+                        </div>
                       </div>
-                      <p className="text-gray-700 text-sm">{report.problem}</p>
+                      <p className="text-gray-700 text-sm mb-2">{report.problem}</p>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {report.reporter_name ? (
+                          <div className="text-xs text-gray-600 font-medium">
+                            Reported by: <span className="text-gray-800 font-semibold">{report.reporter_name}</span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500 italic">
+                            Reporter information unavailable
+                          </div>
+                        )}
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">
+                          <Star size={12} className="fill-yellow-500 text-yellow-500" />
+                          <span>Credibility: {report.user_credibility !== undefined && report.user_credibility !== null ? report.user_credibility : 0}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -32,7 +32,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 /**
- * Check if two reports are adjacent (within 100 meters)
+ * Check if two reports are adjacent (within 500 meters)
  */
 function areAdjacent(report1: Report, report2: Report): boolean {
   // If either report doesn't have coordinates, we can't determine adjacency
@@ -47,8 +47,8 @@ function areAdjacent(report1: Report, report2: Report): boolean {
     report2.lng
   );
 
-  // 100 meters = 0.1 km
-  const ADJACENT_THRESHOLD_KM = 0.1;
+  // 500 meters = 0.5 km
+  const ADJACENT_THRESHOLD_KM = 0.5;
   return distanceInKm <= ADJACENT_THRESHOLD_KM;
 }
 
@@ -72,6 +72,8 @@ export async function findAdjacentReportsWithSameIssue(
   currentReport: Report
 ): Promise<Report[]> {
   try {
+    console.log(`🔍 Fetching all reports to check for matches with report ${currentReport.id}`);
+    
     // Fetch all reports except the current one
     const { data: allReports, error } = await supabase
       .from('report')
@@ -79,22 +81,39 @@ export async function findAdjacentReportsWithSameIssue(
       .neq('id', currentReport.id);
 
     if (error) {
-      console.error('Error fetching reports for credibility check:', error);
+      console.error('❌ Error fetching reports for credibility check:', error);
       return [];
     }
 
     if (!allReports || allReports.length === 0) {
+      console.log('ℹ️ No other reports found in database');
       return [];
     }
 
+    console.log(`📊 Found ${allReports.length} other reports to check`);
+
     // Filter reports that are adjacent and have the same issue
     const matchingReports = allReports.filter((report: Report) => {
-      return areAdjacent(currentReport, report) && hasSameIssue(currentReport, report);
+      const isAdjacent = areAdjacent(currentReport, report);
+      const hasSameIssue = hasSameIssue(currentReport, report);
+      
+      if (isAdjacent && hasSameIssue) {
+        const distance = calculateDistance(
+          currentReport.lat!,
+          currentReport.lng!,
+          report.lat!,
+          report.lng!
+        );
+        console.log(`✅ Match found! Report ${report.id} is ${(distance * 1000).toFixed(0)}m away with same issue type: ${report.type}`);
+      }
+      
+      return isAdjacent && hasSameIssue;
     });
 
+    console.log(`🎯 Found ${matchingReports.length} matching reports (adjacent + same issue)`);
     return matchingReports;
   } catch (error) {
-    console.error('Error in findAdjacentReportsWithSameIssue:', error);
+    console.error('❌ Error in findAdjacentReportsWithSameIssue:', error);
     return [];
   }
 }
@@ -105,6 +124,8 @@ export async function findAdjacentReportsWithSameIssue(
  */
 export async function awardCredibilityPoint(userId: string): Promise<boolean> {
   try {
+    console.log(`🔍 Attempting to award credibility to user: ${userId}`);
+    
     // First, get the current profile to check if it exists
     const { data: profile, error: fetchError } = await supabase
       .from('profiles')
@@ -113,35 +134,63 @@ export async function awardCredibilityPoint(userId: string): Promise<boolean> {
       .maybeSingle();
 
     if (fetchError && fetchError.code !== 'PGRST116') {
-      console.error('Error fetching profile for credibility update:', fetchError);
+      console.error('❌ Error fetching profile for credibility update:', fetchError);
       return false;
     }
 
     const currentCredibility = profile?.credibility ?? 0;
     const newCredibility = currentCredibility + 1;
 
-    // Update or insert the profile with new credibility
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .upsert(
-        {
+    console.log(`📊 User ${userId}: Current credibility = ${currentCredibility}, New credibility = ${newCredibility}`);
+
+    // Use RPC or direct update - try update first, then insert if needed
+    let updateError;
+    
+    if (profile) {
+      // Profile exists, update it
+      const { error } = await supabase
+        .from('profiles')
+        .update({ credibility: newCredibility })
+        .eq('user_id', userId);
+      
+      updateError = error;
+    } else {
+      // Profile doesn't exist, insert it
+      const { error } = await supabase
+        .from('profiles')
+        .insert({
           user_id: userId,
           credibility: newCredibility,
-        },
-        {
-          onConflict: 'user_id',
-        }
-      );
-
-    if (updateError) {
-      console.error('Error updating credibility:', updateError);
-      return false;
+        });
+      
+      updateError = error;
     }
 
-    console.log(`✅ Awarded credibility point to user ${userId}. New total: ${newCredibility}`);
+    if (updateError) {
+      console.error('❌ Error updating credibility:', updateError);
+      // Try upsert as fallback
+      const { error: upsertError } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            user_id: userId,
+            credibility: newCredibility,
+          },
+          {
+            onConflict: 'user_id',
+          }
+        );
+      
+      if (upsertError) {
+        console.error('❌ Error with upsert fallback:', upsertError);
+        return false;
+      }
+    }
+
+    console.log(`✅ Successfully awarded credibility point to user ${userId}. New total: ${newCredibility}`);
     return true;
   } catch (error) {
-    console.error('Error in awardCredibilityPoint:', error);
+    console.error('❌ Exception in awardCredibilityPoint:', error);
     return false;
   }
 }
@@ -152,8 +201,19 @@ export async function awardCredibilityPoint(userId: string): Promise<boolean> {
  */
 export async function checkAndAwardCredibility(newReport: Report): Promise<number> {
   try {
+    console.log(`🔍 Checking credibility for report ${newReport.id} by user ${newReport.user_id}`);
+    console.log(`📍 Report location: lat=${newReport.lat}, lng=${newReport.lng}, type=${newReport.type}, problem=${newReport.problem}`);
+    
+    // If report doesn't have coordinates, skip credibility check
+    if (!newReport.lat || !newReport.lng) {
+      console.log('⚠️ Report missing coordinates, skipping credibility check');
+      return 0;
+    }
+
     // Find adjacent reports with the same issue
     const adjacentReports = await findAdjacentReportsWithSameIssue(newReport);
+
+    console.log(`📊 Found ${adjacentReports.length} adjacent reports with same issue`);
 
     // If there's at least 1 other report (making it 2+ total), award credibility
     if (adjacentReports.length >= 1) {
@@ -165,27 +225,37 @@ export async function checkAndAwardCredibility(newReport: Report): Promise<numbe
       // Add all users from adjacent reports
       adjacentReports.forEach((report) => {
         allUsersToAward.add(report.user_id);
+        console.log(`  - Adjacent report ${report.id} by user ${report.user_id} at (${report.lat}, ${report.lng})`);
       });
 
-      // Award credibility to all users
-      const awardPromises = Array.from(allUsersToAward).map((userId) =>
-        awardCredibilityPoint(userId)
-      );
+      // Only award credibility if there are 2+ DIFFERENT users
+      if (allUsersToAward.size >= 2) {
+        console.log(`🎯 Awarding credibility to ${allUsersToAward.size} different users:`, Array.from(allUsersToAward));
 
-      const results = await Promise.all(awardPromises);
-      const successCount = results.filter((success) => success).length;
+        // Award credibility to all users
+        const awardPromises = Array.from(allUsersToAward).map((userId) =>
+          awardCredibilityPoint(userId)
+        );
 
-      console.log(
-        `🎯 Credibility check: Found ${adjacentReports.length} adjacent reports with same issue. ` +
-        `Awarded credibility to ${successCount} out of ${allUsersToAward.size} users.`
-      );
+        const results = await Promise.all(awardPromises);
+        const successCount = results.filter((success) => success).length;
 
-      return successCount;
+        console.log(
+          `✅ Credibility check complete: Found ${adjacentReports.length} adjacent reports with same issue from ${allUsersToAward.size} different users. ` +
+          `Awarded credibility to ${successCount} out of ${allUsersToAward.size} users.`
+        );
+
+        return successCount;
+      } else {
+        console.log(`⚠️ Found ${adjacentReports.length} adjacent reports, but only ${allUsersToAward.size} unique user(s). Need 2+ different users. Credibility not awarded.`);
+      }
+    } else {
+      console.log('ℹ️ No adjacent reports found with same issue. Credibility not awarded.');
     }
 
     return 0;
   } catch (error) {
-    console.error('Error in checkAndAwardCredibility:', error);
+    console.error('❌ Error in checkAndAwardCredibility:', error);
     return 0;
   }
 }

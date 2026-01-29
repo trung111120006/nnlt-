@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Mail, MapPin, Calendar, BarChart3, Edit2, Briefcase, Clock, Bell } from "lucide-react";
+import { User, Mail, MapPin, Calendar, BarChart3, Edit2, Briefcase, Clock, Bell, Star } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { getProfile } from "@/lib/profile";
 import { UserProfile as UserProfileType, NotificationTime } from "@/lib/types";
@@ -15,6 +15,7 @@ interface Report {
   problem: string;
   user_id: string;
   time_ago?: string;
+  user_credibility?: number | null;
 }
 
 export function UserProfile() {
@@ -41,8 +42,19 @@ export function UserProfile() {
     setLoading(true);
     setDbError(null);
     try {
-      const profileData = await getProfile(user.id);
-      setProfile(profileData);
+      // Use API route instead of direct Supabase call to ensure credibility is fetched correctly
+      const response = await fetch(`/api/profile?user_id=${encodeURIComponent(user.id)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setProfile(data.profile);
+      } else {
+        const errorData = await response.json();
+        console.error("Failed to load profile:", errorData);
+        if (errorData?.details?.includes("does not exist") || errorData?.details?.includes("table")) {
+          setDbError("Database not setup. Please run the SQL from SUPABASE_SETUP.md");
+        }
+        setProfile(null);
+      }
     } catch (error: any) {
       console.error("Failed to load profile:", error);
       // Check if it's a database setup error
@@ -223,7 +235,7 @@ export function UserProfile() {
         {/* Stats & Activity */}
         <div className="lg:col-span-2 space-y-6">
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl p-5 shadow-lg text-center">
               <BarChart3 className="text-blue-500 mx-auto mb-2" size={24} />
               <div className="text-2xl font-bold text-gray-900">{userStats.reportsSubmitted}</div>
@@ -233,6 +245,11 @@ export function UserProfile() {
               <BarChart3 className="text-green-500 mx-auto mb-2" size={24} />
               <div className="text-2xl font-bold text-gray-900">{userStats.contributions}</div>
               <div className="text-sm text-gray-700 font-medium">Contributions</div>
+            </div>
+            <div className="bg-white rounded-xl p-5 shadow-lg text-center">
+              <Star className="text-yellow-500 mx-auto mb-2 fill-yellow-500" size={24} />
+              <div className="text-2xl font-bold text-gray-900">{profile?.credibility ?? 0}</div>
+              <div className="text-sm text-gray-700 font-medium">Credibility</div>
             </div>
           </div>
 

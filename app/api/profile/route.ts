@@ -4,12 +4,19 @@ import { createClient } from '@supabase/supabase-js';
 // Initialize Supabase client for server-side operations
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables');
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create admin client to bypass RLS when reading profiles (for credibility)
+const supabaseAdmin = supabaseServiceRoleKey
+  ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null;
 
 // TypeScript interface for Profile - Khớp với schema Supabase
 interface Profile {
@@ -49,8 +56,9 @@ export async function GET(request: NextRequest) {
 
     console.log('Fetching profile for user:', userId);
 
-    // Fetch profile from the 'profiles' table
-    const { data: profile, error } = await supabase
+    // Fetch profile from the 'profiles' table - use admin client to ensure credibility is readable
+    const clientForProfile = supabaseAdmin ?? supabase;
+    const { data: profile, error } = await clientForProfile
       .from('profiles')
       .select('*')
       .eq('user_id', userId)
