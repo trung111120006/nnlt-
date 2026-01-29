@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkAndAwardCredibility } from '@/lib/credibility';
 
 // Initialize Supabase client for server-side operations
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -129,6 +130,12 @@ export async function POST(request: NextRequest) {
       time_ago: getTimeAgo(newReport.created_at),
       reported_by: newReport.user_id,
     };
+
+    // Check for adjacent reports with the same issue and award credibility points
+    // This runs asynchronously and won't block the response
+    checkAndAwardCredibility(newReport).catch((error) => {
+      console.error('Error checking credibility (non-blocking):', error);
+    });
 
     return NextResponse.json(
       { message: 'Report created successfully', report: reportWithTimeAgo },

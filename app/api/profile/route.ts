@@ -19,6 +19,7 @@ interface Profile {
   age: string | null; // text (không phải number!)
   job: string | null; // text
   avatar_url: string | null; // text
+  credibility?: number | null; // integer (credibility points)
   user_id: string; // uuid (foreign key to auth.users.id)
 }
 

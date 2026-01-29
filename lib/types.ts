@@ -5,6 +5,7 @@ export interface UserProfile {
   age: number | null;
   job: string | null;
   avatar_url: string | null;
+  credibility?: number | null;
   notification_times?: NotificationTime[] | null;
   created_at: string;
   updated_at: string;
