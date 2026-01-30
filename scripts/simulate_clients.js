@@ -3,7 +3,7 @@
 
 // Configuration
 const TARGET_URL = 'http://localhost:3000/api/chat';
-const NUM_CLIENTS = 20;
+const NUM_CLIENTS = 10;
 
 async function simulateClients() {
   console.log(
