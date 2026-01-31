@@ -231,10 +231,14 @@ export async function POST(request: NextRequest) {
     };
 
     // Check for adjacent reports with the same issue and award credibility points
-    // This runs asynchronously and won't block the response
-    checkAndAwardCredibility(newReport).catch((error) => {
-      console.error('Error checking credibility (non-blocking):', error);
-    });
+    try {
+      const awarded = await checkAndAwardCredibility(newReport);
+      if (awarded > 0) {
+        console.log(`Credibility: awarded ${awarded} user(s) for report ${newReport.id}`);
+      }
+    } catch (err: any) {
+      console.error('Error checking/awarding credibility:', err?.message || err);
+    }
 
     return NextResponse.json(
       { message: 'Report created successfully', report: reportWithTimeAgo },

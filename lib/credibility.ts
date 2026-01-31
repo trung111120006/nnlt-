@@ -1,9 +1,16 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Use service role client when available so we can read all reports and update any profile (bypass RLS)
+const supabaseAdmin: SupabaseClient | null = supabaseServiceRoleKey
+  ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null;
 
 interface Report {
   id: string;
@@ -73,9 +80,10 @@ export async function findAdjacentReportsWithSameIssue(
 ): Promise<Report[]> {
   try {
     console.log(`🔍 Fetching all reports to check for matches with report ${currentReport.id}`);
-    
-    // Fetch all reports except the current one
-    const { data: allReports, error } = await supabase
+    const client = supabaseAdmin ?? supabase;
+
+    // Fetch all reports except the current one (use admin to read all reports)
+    const { data: allReports, error } = await client
       .from('report')
       .select('*')
       .neq('id', currentReport.id);
@@ -94,10 +102,10 @@ export async function findAdjacentReportsWithSameIssue(
 
     // Filter reports that are adjacent and have the same issue
     const matchingReports = allReports.filter((report: Report) => {
-      const isAdjacent = areAdjacent(currentReport, report);
-      const hasSameIssue = hasSameIssue(currentReport, report);
-      
-      if (isAdjacent && hasSameIssue) {
+      const adjacent = areAdjacent(currentReport, report);
+      const sameIssue = hasSameIssue(currentReport, report);
+
+      if (adjacent && sameIssue) {
         const distance = calculateDistance(
           currentReport.lat!,
           currentReport.lng!,
@@ -106,8 +114,8 @@ export async function findAdjacentReportsWithSameIssue(
         );
         console.log(`✅ Match found! Report ${report.id} is ${(distance * 1000).toFixed(0)}m away with same issue type: ${report.type}`);
       }
-      
-      return isAdjacent && hasSameIssue;
+
+      return adjacent && sameIssue;
     });
 
     console.log(`🎯 Found ${matchingReports.length} matching reports (adjacent + same issue)`);
@@ -123,11 +131,12 @@ export async function findAdjacentReportsWithSameIssue(
  * Increments their credibility by 1 point
  */
 export async function awardCredibilityPoint(userId: string): Promise<boolean> {
+  const client = supabaseAdmin ?? supabase;
   try {
     console.log(`🔍 Attempting to award credibility to user: ${userId}`);
-    
-    // First, get the current profile to check if it exists
-    const { data: profile, error: fetchError } = await supabase
+
+    // First, get the current profile to check if it exists (use admin to read/update any profile)
+    const { data: profile, error: fetchError } = await client
       .from('profiles')
       .select('credibility, user_id')
       .eq('user_id', userId)
@@ -143,44 +152,38 @@ export async function awardCredibilityPoint(userId: string): Promise<boolean> {
 
     console.log(`📊 User ${userId}: Current credibility = ${currentCredibility}, New credibility = ${newCredibility}`);
 
-    // Use RPC or direct update - try update first, then insert if needed
     let updateError;
-    
+
     if (profile) {
-      // Profile exists, update it
-      const { error } = await supabase
+      const { error } = await client
         .from('profiles')
         .update({ credibility: newCredibility })
         .eq('user_id', userId);
-      
+
       updateError = error;
     } else {
-      // Profile doesn't exist, insert it
-      const { error } = await supabase
+      const { error } = await client
         .from('profiles')
         .insert({
           user_id: userId,
           credibility: newCredibility,
         });
-      
+
       updateError = error;
     }
 
     if (updateError) {
       console.error('❌ Error updating credibility:', updateError);
-      // Try upsert as fallback
-      const { error: upsertError } = await supabase
+      const { error: upsertError } = await client
         .from('profiles')
         .upsert(
           {
             user_id: userId,
             credibility: newCredibility,
           },
-          {
-            onConflict: 'user_id',
-          }
+          { onConflict: 'user_id' }
         );
-      
+
       if (upsertError) {
         console.error('❌ Error with upsert fallback:', upsertError);
         return false;
@@ -201,9 +204,12 @@ export async function awardCredibilityPoint(userId: string): Promise<boolean> {
  */
 export async function checkAndAwardCredibility(newReport: Report): Promise<number> {
   try {
+    if (!supabaseAdmin) {
+      console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY not set - credibility check may fail due to RLS');
+    }
     console.log(`🔍 Checking credibility for report ${newReport.id} by user ${newReport.user_id}`);
     console.log(`📍 Report location: lat=${newReport.lat}, lng=${newReport.lng}, type=${newReport.type}, problem=${newReport.problem}`);
-    
+
     // If report doesn't have coordinates, skip credibility check
     if (!newReport.lat || !newReport.lng) {
       console.log('⚠️ Report missing coordinates, skipping credibility check');
