@@ -115,7 +115,7 @@ export async function findAdjacentReportsWithSameIssue(
         console.log(`✅ Match found! Report ${report.id} is ${(distance * 1000).toFixed(0)}m away with same issue type: ${report.type}`);
       }
 
-      return isAdjacent && hasSameIssueResult;
+      return isAdjacent && sameIssue;
     });
 
     console.log(`🎯 Found ${matchingReports.length} matching reports (adjacent + same issue)`);
