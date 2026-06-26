@@ -18,6 +18,16 @@ export function Footer() {
       role: "Co-Founder",
       image: "khoa.jpg", // Thêm link ảnh của bạn vào đây
     },
+    {
+      name: "Co-Founder Vu Hoang Viet Anh",
+      role: "Co-Founder",
+      image: "va.jpg", // Thêm link ảnh của bạn vào đây
+    },
+    {
+      name: "Co-Founder Cao Thanh Binh",
+      role: "Co-Founder",
+      image: "binh.jpg", // Thêm link ảnh của bạn vào đây
+    },
   ];
 
   return (

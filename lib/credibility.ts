@@ -102,10 +102,10 @@ export async function findAdjacentReportsWithSameIssue(
 
     // Filter reports that are adjacent and have the same issue
     const matchingReports = allReports.filter((report: Report) => {
-      const adjacent = areAdjacent(currentReport, report);
+      const isAdjacent = areAdjacent(currentReport, report);
       const sameIssue = hasSameIssue(currentReport, report);
-
-      if (adjacent && sameIssue) {
+      
+      if (isAdjacent && sameIssue) {
         const distance = calculateDistance(
           currentReport.lat!,
           currentReport.lng!,
@@ -115,7 +115,7 @@ export async function findAdjacentReportsWithSameIssue(
         console.log(`✅ Match found! Report ${report.id} is ${(distance * 1000).toFixed(0)}m away with same issue type: ${report.type}`);
       }
 
-      return adjacent && sameIssue;
+      return isAdjacent && hasSameIssueResult;
     });
 
     console.log(`🎯 Found ${matchingReports.length} matching reports (adjacent + same issue)`);
